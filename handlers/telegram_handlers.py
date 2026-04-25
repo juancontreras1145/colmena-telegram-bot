@@ -24,6 +24,9 @@ from core.debate_engine import (
     decidir_modo,
     explicar_modo,
 )
+from core.domain_detector import detect_domain
+from core.domain_rules import apply_domain_rules
+from core.action_plan import build_action_plan, format_action_plan
 from core.limits import MAX_FILE_BYTES
 from core.reader import SUPPORTED_EXTENSIONS, load_file
 from core.report import build_report
@@ -95,39 +98,33 @@ def get_user_state(context: ContextTypes.DEFAULT_TYPE) -> dict:
     return context.user_data
 
 
-async def decir(update: Update, texto: str, pausa: float | None = None) -> None:
-    msg = update.effective_message
-    state = get_user_state_from_update_context(update)
-    delay = PAUSA_MENSAJE if pausa is None else pausa
-
-    if state:
-        delay = float(state.get("pausa", delay))
-
-    await msg.chat.send_action(ChatAction.TYPING)
-    await asyncio.sleep(delay)
-    await msg.reply_text(texto)
-
-
-def get_user_state_from_update_context(update: Update) -> dict | None:
-    # Placeholder seguro: la pausa real se controla en enviar_lineas().
-    return None
-
-
-async def enviar_lineas(update: Update, context: ContextTypes.DEFAULT_TYPE, lineas: list[str]) -> None:
+async def enviar_lineas(
+    update: Update,
+    context: ContextTypes.DEFAULT_TYPE,
+    lineas: list[str],
+) -> None:
     state = get_user_state(context)
     pausa = float(state.get("pausa", PAUSA_MENSAJE))
 
     for linea in lineas:
+        if not linea:
+            continue
+
         await update.effective_message.chat.send_action(ChatAction.TYPING)
         await asyncio.sleep(pausa)
-        await update.effective_message.reply_text(linea)
+        await update.effective_message.reply_text(str(linea))
 
 
-async def enviar_bloque(update: Update, lineas: list[str], max_chars: int = 3500) -> None:
+async def enviar_bloque(
+    update: Update,
+    lineas: list[str],
+    max_chars: int = 3500,
+) -> None:
     msg = update.effective_message
     buffer = ""
 
     for linea in lineas:
+        linea = str(linea)
         candidato = buffer + "\n" + linea if buffer else linea
 
         if len(candidato) > max_chars:
@@ -336,10 +333,14 @@ async def on_document(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
         tg_file = await document.get_file()
         await tg_file.download_to_drive(custom_path=download_path)
 
-        await enviar_lineas(update, context, [
-            "👁️ Lector: descargué el archivo. Lo voy a inspeccionar.",
-            "🛡️ Inspector: abriendo en modo seguro.",
-        ])
+        await enviar_lineas(
+            update,
+            context,
+            [
+                "👁️ Lector: descargué el archivo. Lo voy a inspeccionar.",
+                "🛡️ Inspector: abriendo en modo seguro.",
+            ],
+        )
 
         loop = asyncio.get_running_loop()
 
@@ -357,21 +358,54 @@ async def on_document(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
             )
             return
 
-        await enviar_lineas(update, context, [
-            "📊 Analista: datos cargados. Empieza la revisión pesada.",
-        ])
+        await enviar_lineas(
+            update,
+            context,
+            [
+                "📊 Analista: datos cargados. Empieza la revisión pesada.",
+            ],
+        )
 
         analysis = await loop.run_in_executor(None, analyze_dataframe, df)
 
-        await enviar_lineas(update, context, [
-            "🔤 Detective fino: revisando textos, correos, espacios y typos.",
-        ])
+        domain = detect_domain(df.columns)
+        domain_findings = apply_domain_rules(df, domain.domain)
+        action_plan = build_action_plan(domain.label, domain_findings)
+
+        await enviar_lineas(
+            update,
+            context,
+            [
+                f"🧠 Jefe: detecté tipo de archivo: {domain.label} ({domain.confidence}% confianza).",
+            ],
+        )
+
+        if domain.reasons:
+            await enviar_lineas(
+                update,
+                context,
+                [
+                    "📌 Razones: " + "; ".join(domain.reasons[:4]),
+                ],
+            )
+
+        await enviar_lineas(
+            update,
+            context,
+            [
+                "🔤 Detective fino: revisando textos, correos, espacios y typos.",
+            ],
+        )
 
         text_quality = await loop.run_in_executor(None, analyze_text_quality, df)
 
-        await enviar_lineas(update, context, [
-            "📝 Constructor: preparando debate, resumen y TXT.",
-        ])
+        await enviar_lineas(
+            update,
+            context,
+            [
+                "📝 Constructor: preparando debate, resumen y TXT.",
+            ],
+        )
 
         report = await loop.run_in_executor(
             None,
@@ -398,10 +432,69 @@ async def on_document(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
 
         await enviar_lineas(update, context, debate)
 
-        await enviar_lineas(update, context, [
-            "📋 Resumen corto de la colmena:",
-        ])
+        if domain_findings:
+            await enviar_lineas(
+                update,
+                context,
+                [
+                    f"🧩 Reglas de dominio: encontré {len(domain_findings)} hallazgo(s) específico(s).",
+                ],
+            )
 
+            for finding in domain_findings[:5]:
+                await enviar_lineas(
+                    update,
+                    context,
+                    [
+                        f"🔎 {finding.title}",
+                        f"📍 {finding.detail}",
+                        f"✅ Acción: {finding.action}",
+                    ],
+                )
+
+            if len(domain_findings) > 5:
+                await enviar_lineas(
+                    update,
+                    context,
+                    [
+                        f"🧠 Jefe: hay {len(domain_findings) - 5} hallazgo(s) de dominio más. Van en el plan/reporte.",
+                    ],
+                )
+        else:
+            await enviar_lineas(
+                update,
+                context,
+                [
+                    "🧩 Reglas de dominio: no encontré alertas específicas fuertes para este tipo de archivo.",
+                ],
+            )
+
+        await enviar_lineas(
+            update,
+            context,
+            format_action_plan(action_plan)[:18],
+        )
+
+        await enviar_lineas(
+            update,
+            context,
+            [
+                "📋 Resumen corto de la colmena:",
+            ],
+        )
+
+        resumen_extra = [
+            "🧠 Lectura inteligente",
+            f"- Tipo detectado: {domain.label}",
+            f"- Confianza: {domain.confidence}%",
+        ]
+
+        if domain_findings:
+            resumen_extra.append(f"- Hallazgos de dominio: {len(domain_findings)}")
+        else:
+            resumen_extra.append("- Hallazgos de dominio: 0")
+
+        await enviar_bloque(update, resumen_extra)
         await enviar_bloque(update, report.summary_lines)
 
         out_name = f"colmena_{slugify(os.path.splitext(file_name)[0])}.txt"
@@ -416,9 +509,13 @@ async def on_document(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
                 ),
             )
 
-        await enviar_lineas(update, context, [
-            "✅ Colmena finalizada. Puedes enviarme otro archivo.",
-        ])
+        await enviar_lineas(
+            update,
+            context,
+            [
+                "✅ Colmena finalizada. Puedes enviarme otro archivo.",
+            ],
+        )
 
     except Exception as exc:  # noqa: BLE001
         log.exception("Error procesando archivo")
