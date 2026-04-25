@@ -17,7 +17,7 @@ DOUBLE_SPACE_RE = re.compile(r"\s{2,}")
 LEADING_TRAILING_SPACE_RE = re.compile(r"^\s+|\s+$")
 REPEATED_LETTERS_RE = re.compile(r"([A-Za-zÁÉÍÓÚÜÑáéíóúüñ])\1{" + str(REPEAT_LETTERS_THRESHOLD - 1) + r",}")
 EMAIL_RE = re.compile(r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
-WEIRD_EMAIL_LOCAL_RE = re.compile(r"[A-Za-z]\1{2,}|\.{2,}|--")
+WEIRD_EMAIL_LOCAL_RE = re.compile(r"([A-Za-z])\1{2,}|\.{2,}|--")
 
 
 @dataclass
