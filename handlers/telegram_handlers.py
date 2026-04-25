@@ -23,7 +23,6 @@ from core.debate_engine import (
     crear_debate,
     decidir_modo,
     explicar_modo,
-    get_user_state,
 )
 from core.limits import MAX_FILE_BYTES
 from core.reader import SUPPORTED_EXTENSIONS, load_file
