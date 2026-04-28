@@ -180,11 +180,24 @@ def load_file(path: str, original_name: str) -> LoadedFile:
         file.error = f"Formato no soportado: {extension}. Usa CSV, XLSX, XLSM o APK."
         return file
 
+    # IMPORTANTE:
+    # Los APK NO se leen con pandas/openpyxl. El handler de Telegram debe derivarlos
+    # a core.apk_analyzer.analyze_apk(). Dejamos esta proteccion para que, si por
+    # error alguien llama load_file() con un .apk, no intente abrirlo como Excel.
+    if extension == ".apk":
+        file.error = (
+            "Este archivo es APK. Debe pasar por el modo APK, no por el lector Excel. "
+            "Actualiza handlers/telegram_handlers.py con la version que incluye analyze_apk()."
+        )
+        return file
+
     try:
         if extension == ".csv":
             _read_csv(path, safe_mode, file)
-        else:
+        elif extension in (".xlsx", ".xlsm"):
             _read_excel(path, safe_mode, file)
+        else:
+            file.error = f"Formato no soportado: {extension}. Usa CSV, XLSX, XLSM o APK."
     except Exception as exc:  # noqa: BLE001
         file.error = f"No pude leer el archivo: {exc}"
 
