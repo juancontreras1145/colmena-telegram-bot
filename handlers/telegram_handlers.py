@@ -16,6 +16,7 @@ from telegram.ext import (
 )
 
 from core.analyzer import analyze_dataframe
+from core.apk_analyzer import analyze_apk, build_apk_report
 from core.debate_engine import (
     DebateConfig,
     ESTILOS_VALIDOS,
@@ -51,7 +52,7 @@ WELCOME = (
     "⚖️ Crítico\n"
     "🧠 Jefe\n"
     "📝 Constructor\n\n"
-    "Envíame un archivo CSV, XLSX o XLSM.\n\n"
+    "Envíame un archivo CSV, XLSX, XLSM o APK.\n\n"
     "Comandos:\n"
     "/modo auto | show | normal | compacto | silencioso\n"
     "/estilo equilibrado | serio | humor | duro\n"
@@ -67,8 +68,9 @@ HELP = (
     "Formatos aceptados:\n"
     "- CSV\n"
     "- XLSX\n"
-    "- XLSM\n\n"
-    "El bot nunca ejecuta macros.\n\n"
+    "- XLSM\n"
+    "- APK\n\n"
+    "El bot nunca ejecuta macros ni ejecuta APKs. El modo APK es análisis estático.\n\n"
     "Modos:\n"
     "auto: decide solo\n"
     "show: debate largo\n"
@@ -287,7 +289,7 @@ async def on_text(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         return
 
     await update.effective_message.reply_text(
-        "🐝 Mándame un archivo CSV, XLSX o XLSM y activo la colmena.\n\n"
+        "🐝 Mándame un archivo CSV, XLSX, XLSM o APK y activo la colmena.\n\n"
         "Comandos útiles:\n"
         "/modo compacto\n"
         "/modo show\n"
@@ -311,7 +313,7 @@ async def on_document(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
 
     if ext not in SUPPORTED_EXTENSIONS:
         await msg.reply_text(
-            f"⚠️ Formato {ext} no soportado. Acepto CSV, XLSX o XLSM."
+            f"⚠️ Formato {ext} no soportado. Acepto CSV, XLSX, XLSM o APK."
         )
         return
 
@@ -343,6 +345,43 @@ async def on_document(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
         )
 
         loop = asyncio.get_running_loop()
+
+        if ext == ".apk":
+            await enviar_lineas(
+                update,
+                context,
+                [
+                    "📦 Forense APK: abrí el paquete sin ejecutarlo.",
+                    "🛡️ Guardia: esto es análisis estático; no instala ni corre la app.",
+                    "🕵️ Detective: buscando permisos, dominios, URLs, librerías y señales raras.",
+                ],
+            )
+
+            apk_analysis = await loop.run_in_executor(None, analyze_apk, download_path, file_name)
+            apk_summary = await loop.run_in_executor(None, build_apk_report, apk_analysis, txt_path)
+
+            await enviar_bloque(update, apk_summary)
+
+            out_name = f"colmena_apk_{slugify(os.path.splitext(file_name)[0])}.txt"
+            with open(txt_path, "rb") as f:
+                await msg.reply_document(
+                    document=f,
+                    filename=out_name,
+                    caption=(
+                        "📝 Reporte APK completo.\n"
+                        f"🩺 Riesgo estático: {apk_analysis.risk_score}/100 — {apk_analysis.risk_label}"
+                    ),
+                )
+
+            state["archivos_analizados"] = state.get("archivos_analizados", 0) + 1
+            await enviar_lineas(
+                update,
+                context,
+                [
+                    "✅ Colmena APK finalizada. Puedes enviarme otro archivo.",
+                ],
+            )
+            return
 
         loaded = await loop.run_in_executor(None, load_file, download_path, file_name)
 
@@ -508,6 +547,8 @@ async def on_document(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
                     f"🩺 Salud: {report.health_score}/100 — {report.health_label}"
                 ),
             )
+
+        state["archivos_analizados"] = state.get("archivos_analizados", 0) + 1
 
         await enviar_lineas(
             update,
