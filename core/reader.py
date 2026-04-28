@@ -17,7 +17,7 @@ from .limits import (
 from .workbook_profiler import WorkbookProfile, profile_workbook
 
 
-SUPPORTED_EXTENSIONS = (".csv", ".xlsx", ".xlsm")
+SUPPORTED_EXTENSIONS = (".csv", ".xlsx", ".xlsm", ".apk")
 
 
 @dataclass
@@ -177,7 +177,7 @@ def load_file(path: str, original_name: str) -> LoadedFile:
     )
 
     if extension not in SUPPORTED_EXTENSIONS:
-        file.error = f"Formato no soportado: {extension}. Usa CSV, XLSX o XLSM."
+        file.error = f"Formato no soportado: {extension}. Usa CSV, XLSX, XLSM o APK."
         return file
 
     try:
